@@ -1,6 +1,6 @@
 # CTFtime Discord Bot
 
-This Discord bot provides information about Capture The Flag (CTF) events and teams using data from CTFtime.org. It offers features such as event announcements, team rankings, and more to keep your Discord community updated on the latest in the CTF world.
+This Discord bot provides information about Capture The Flag (CTF) events and teams using data from [CTFtime.org](https://ctftime.org/). It offers features such as event announcements, team rankings, and more to keep your Discord community updated on the latest in the CTF world.
 
 ## Features
 
@@ -66,4 +66,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Disclaimer
 
-This bot is not officially affiliated with CTFtime.org. It uses the CTFtime API to fetch publicly available data. Please use responsibly and in accordance with CTFtime's terms of service.
+This bot is not officially affiliated with CTFtime.org. It uses the [CTFtime API](https://ctftime.org/api/) to fetch publicly available data. Please use responsibly and in accordance with CTFtime's terms of service.
