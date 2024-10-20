@@ -2,6 +2,7 @@ import discord
 import requests
 import json
 import os
+import math
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 from datetime import datetime, timedelta, timezone
@@ -242,6 +243,17 @@ class TeamPaginator(View):
         total_pages = (len(self.teams) - 1) // self.teams_per_page + 1
         embed.set_footer(text=f"Page {self.current_page + 1} of {total_pages} | Data from CTFtime.org")
         return embed
+    
+def calculate_rating(weight, total_teams, best_points, team_place, team_points):
+
+    points_coef = team_points / best_points if best_points > 0 else 0
+
+    place_coef = 1 / team_place if team_place > 0 else 0
+
+    if points_coef > 0:
+        e_rating = ((points_coef + place_coef) * weight) / (1 / (1 + team_place/total_teams))
+        return e_rating
+    return 0
 
 @bot.command(name='topcountryteams')
 async def top_country_teams_command(ctx, country_code: str):
@@ -271,6 +283,7 @@ async def help_command(ctx):
     embed.add_field(name=f"{prefix}uptime", value="Display how long the bot has been running.", inline=False)
     embed.add_field(name=f"{prefix}setprefix [new_prefix]", value="Set a new prefix for the bot. (Requires Manage Server permission)", inline=False)
     embed.add_field(name=f"{prefix}setannouncementchannel [#channel]", value="Set the announcement channel for CTF events. (Requires Manage Server permission)", inline=False)
+    embed.add_field(name=f"{prefix}rating [weight] [total_teams] [best_points] [team_place] [team_points]", value="Calculate the rating points of a particular team in an event using the [CTFtime rating formula.](https://ctftime.org/rating-formula/)", inline=False)
     embed.set_footer(text="CTFtime Discord Bot")
     await ctx.send(embed=embed)
 
@@ -456,6 +469,81 @@ async def post_ctf_events(specific_server_id=None, message=None):
 async def fetch_events_periodically():
     print("Automatically fetching and posting new CTF events starting within a week...")
     await post_ctf_events()
+
+@bot.command(name='rating')
+async def rating(ctx, weight: str = None, total_teams: str = None, 
+                best_points: str = None, team_place: str = None, 
+                team_points: str = None):
+
+    error_embed = discord.Embed(
+        title="Error",
+        color=discord.Color.red()
+    )
+    error_embed.add_field(
+    name="Please check your command",
+    value="Either the variables aren't properly given or there is some internal error.\n\n"
+          "The command format should be:\n"
+          "`!rating [weight] [total_teams] [best_points] [team_place] [team_points]`\n\n"
+          "Please contact @sickinsecure on Discord if you feel like the bot has some bug.",
+    inline=False
+)
+
+    if None in [weight, total_teams, best_points, team_place, team_points]:
+        await ctx.send(embed=error_embed)
+        return
+
+    try:
+
+        weight = float(weight)
+        total_teams = float(total_teams)
+        best_points = float(best_points)
+        team_place = float(team_place)
+        team_points = float(team_points)
+
+        if any(x <= 0 for x in [total_teams, best_points, team_place]):
+            await ctx.send(embed=error_embed)
+            return
+
+        e_rating = calculate_rating(weight, total_teams, best_points, team_place, team_points)
+
+        result_embed = discord.Embed(
+            title="Rating Calculation Results",
+            color=discord.Color.blue()
+        )
+
+        result_embed.add_field(
+            name="Input Parameters",
+            value=f"Weight: {weight:.4f}\n"
+                  f"Total Teams: {total_teams:.4f}\n"
+                  f"Best Points: {best_points:.4f}\n"
+                  f"Team Place: {team_place:.4f}\n"
+                  f"Team Points: {team_points:.4f}",
+            inline=False
+        )
+
+        points_coef = team_points / best_points if best_points > 0 else 0
+        place_coef = 1 / team_place if team_place > 0 else 0
+
+        result_embed.add_field(
+            name="Calculations",
+            value=f"Points Coefficient: {points_coef:.4f}\n"
+                  f"Place Coefficient: {place_coef:.4f}",
+            inline=False
+        )
+
+        result_embed.add_field(
+            name="Final E Rating",
+            value=f"**{e_rating:.4f}**",
+            inline=False
+        )
+
+        await ctx.send(embed=result_embed)
+
+    except ValueError:
+        await ctx.send(embed=error_embed)
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        await ctx.send(embed=error_embed)
 
 @bot.event
 async def on_ready():
