@@ -8,6 +8,8 @@ from discord.ext.commands import has_permissions
 from datetime import datetime, timedelta, timezone
 from discord import ButtonStyle
 from discord.ui import Button, View
+from datetime import datetime
+import time
 
 TOKEN = 'REDACTED'
 CTFTIME_API_EVENTS = "https://ctftime.org/api/v1/events/"
@@ -86,8 +88,22 @@ def create_ctf_embed(event):
         timestamp=datetime.fromisoformat(event["start"].replace("Z", "+00:00"))
     )
 
-    embed.add_field(name="Start", value=event["start"], inline=True)
-    embed.add_field(name="End", value=event["finish"], inline=True)
+    start_dt = datetime.fromisoformat(event["start"].replace("Z", "+00:00"))
+    end_dt = datetime.fromisoformat(event["finish"].replace("Z", "+00:00"))
+
+    start_unix = int(start_dt.timestamp())
+    end_unix = int(end_dt.timestamp())
+
+    start_timestamp = (
+        f"<t:{start_unix}:F> (<t:{start_unix}:R>)"  
+    )
+
+    end_timestamp = (
+        f"<t:{end_unix}:F> (<t:{end_unix}:R>)"  
+    )
+
+    embed.add_field(name="Start", value=start_timestamp, inline=True)
+    embed.add_field(name="End", value=end_timestamp, inline=True)
     embed.add_field(name="Format", value=event["format"], inline=True)
     embed.add_field(name="Participants", value=event.get("participants", "N/A"), inline=True)
     embed.add_field(name="Weight", value=event.get("weight", "N/A"), inline=True)
