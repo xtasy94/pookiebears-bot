@@ -18,6 +18,7 @@ CTFTIME_API_TEAM_INFO = "https://ctftime.org/api/v1/teams/"
 CTFTIME_API_TOP_BY_COUNTRY = "https://ctftime.org/api/v1/top-by-country/"
 ANNOUNCED_EVENTS_FILE = 'announced_events.json'
 SERVER_CONFIG_FILE = 'server_config.json'
+CURRENT_CTFS_FILE = 'current_ctfs.json'
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -184,6 +185,181 @@ class TopTeamsPaginator(View):
         total_pages = (self.limit - 1) // self.teams_per_page + 1
         embed.set_footer(text=f"Page {self.current_page + 1} of {total_pages} | Data from CTFtime.org")
         return embed
+    
+def load_current_ctfs():
+    if not os.path.exists(CURRENT_CTFS_FILE):
+        with open(CURRENT_CTFS_FILE, 'w') as f:
+            json.dump({"current_ctfs": []}, f)
+    with open(CURRENT_CTFS_FILE, 'r') as f:
+        data = json.load(f)
+        if not isinstance(data, dict) or "current_ctfs" not in data or not isinstance(data["current_ctfs"], list):
+            data = {"current_ctfs": []}
+            save_current_ctfs(data)
+        return data
+
+
+def save_current_ctfs(ctfs):
+    with open(CURRENT_CTFS_FILE, 'w') as f:
+        json.dump({"current_ctfs": ctfs}, f, indent=4)
+
+async def store_ctf_timing(event):
+    """Store CTF timing information when a new event is announced"""
+    current_ctfs = load_current_ctfs()
+
+    start_time = int(datetime.fromisoformat(event["start"].replace("Z", "+00:00")).timestamp())
+    end_time = int(datetime.fromisoformat(event["finish"].replace("Z", "+00:00")).timestamp())
+
+    ctf_info = {
+        "id": event["id"],
+        "title": event["title"],
+        "description": event.get("description", "No description provided."),
+        "start_time": start_time,
+        "end_time": end_time,
+        "url": event["url"],
+        "ctftime_url": event["ctftime_url"],
+        "logo": event.get("logo", "https://ctftime.org/static/images/logo.png"),
+        "format": event["format"],
+        "weight": event.get("weight", "N/A"),
+        "announcement_message_id": None
+    }
+
+    current_ctfs["current_ctfs"].append(ctf_info)
+    save_current_ctfs(current_ctfs)
+
+def create_ctf_status_embed(ctf, status="started"):
+    """Create embed for general CTF status announcements"""
+    color = discord.Color.green() if status == "started" else discord.Color.red()
+
+    embed = discord.Embed(
+        title=f"CTF {status.title()}! - {ctf['title']}",
+        url=ctf['ctftime_url'],
+        color=color,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    start_time = ctf["start_time"]
+    end_time = ctf["end_time"]
+
+    if status == "started":
+        embed.description = (
+            f"🚀 **This CTF has begun!**\n\n"
+            f"Ends: <t:{end_time}:F> (<t:{end_time}:R>)"
+        )
+    else:
+        embed.description = (
+            f"🏁 **This CTF has ended!**\n\n"
+            f"Good job to all participants! It ran from <t:{start_time}:F> to <t:{end_time}:F>."
+        )
+
+    embed.add_field(name="Format", value=ctf["format"], inline=True)
+    embed.add_field(name="Weight", value=ctf["weight"], inline=True)
+
+    if ctf["url"] != "N/A":
+        embed.add_field(name="Event URL", value=ctf["url"], inline=False)
+
+    embed.set_thumbnail(url=ctf.get("logo", "https://ctftime.org/static/images/logo.png"))
+    return embed
+
+@bot.command(name='setcurrentctfchannel')
+@has_permissions(manage_guild=True)
+async def set_current_ctf_channel(ctx, channel: discord.TextChannel):
+    """Set the channel for CTF status announcements"""
+    config = load_server_config()
+    server_id = str(ctx.guild.id)
+    if server_id not in config:
+        config[server_id] = {}
+    config[server_id]['current_ctf_channel_id'] = channel.id
+    save_server_config(config)
+
+    await ctx.send(f"Current CTF status channel has been set to {channel.mention}")
+
+async def post_ctf_events(specific_server_id=None, message=None):
+    config = load_server_config()
+    events_found = False
+
+    for server_id, server_config in config.items():
+        if specific_server_id and str(specific_server_id) != server_id:
+            continue
+
+        announcement_channel_id = server_config.get('announcement_channel_id')
+        if announcement_channel_id:
+            channel = bot.get_channel(announcement_channel_id)
+            if channel is None:
+                print(f"Announcement channel with ID {announcement_channel_id} not found for server {server_id}.")
+                continue
+
+            announced_event_ids = load_announced_events()
+            events = get_ctftime_events()
+
+            new_events = []
+            for event in events:
+                event_id = event["id"]
+                if event_id not in announced_event_ids:
+                    new_events.append(event)
+                    announced_event_ids.add(event_id)
+
+                    await store_ctf_timing(event)
+
+            if not new_events:
+                print(f"No new CTF events to announce for server {server_id}.")
+                continue
+
+            events_found = True
+            for event in new_events:
+                embed = create_ctf_embed(event)
+                try:
+                    await channel.send(embed=embed)
+                    print(f"Announced event: {event['title']} in server {server_id}")
+                except Exception as e:
+                    print(f"Failed to send embed for event {event['title']} in server {server_id}: {e}")
+
+            save_announced_events(announced_event_ids)
+
+    return events_found
+
+async def check_ctf_status():
+    try:
+        current_time = int(datetime.now(timezone.utc).timestamp())
+        ctfs_data = load_current_ctfs()
+        config = load_server_config()
+
+        for server_id, server_config in config.items():
+            current_ctf_channel_id = server_config.get('current_ctf_channel_id')
+            if not current_ctf_channel_id:
+                continue
+
+            channel = bot.get_channel(current_ctf_channel_id)
+            if not channel:
+                print(f"Current CTF channel with ID {current_ctf_channel_id} not found for server {server_id}.")
+                continue
+
+            updated_ctfs = []
+
+            for ctf in ctfs_data["current_ctfs"]:
+                if current_time >= ctf["start_time"] and not ctf["announcement_message_id"]:
+                    embed = create_ctf_status_embed(ctf, "started")
+                    message = await channel.send(embed=embed)
+                    ctf["announcement_message_id"] = message.id  
+
+                elif current_time >= ctf["end_time"] and ctf["announcement_message_id"]:
+                    try:
+                        message = await channel.fetch_message(ctf["announcement_message_id"])
+                        await message.delete()
+                    except discord.NotFound:
+                        print("Message not found, it may have been deleted manually.")
+                    except discord.Forbidden:
+                        print("Bot does not have permission to delete messages in this channel.")
+                    
+                    ctf["announcement_message_id"] = None
+
+                if current_time < ctf["end_time"]:
+                    updated_ctfs.append(ctf)
+
+            ctfs_data["current_ctfs"] = updated_ctfs
+            save_current_ctfs(ctfs_data)
+
+    except Exception as e:
+        print(f"Error in check_ctf_status: {e}")
 
 
 def get_team_info(team_id):
@@ -299,6 +475,7 @@ async def help_command(ctx):
     embed.add_field(name=f"{prefix}uptime", value="Display how long the bot has been running.", inline=False)
     embed.add_field(name=f"{prefix}setprefix [new_prefix]", value="Set a new prefix for the bot. (Requires Manage Server permission)", inline=False)
     embed.add_field(name=f"{prefix}setannouncementchannel [#channel]", value="Set the announcement channel for CTF events. (Requires Manage Server permission)", inline=False)
+    embed.add_field(name=f"{prefix}setcurrentctfchannel [#channel]", value="Set the channel for CTF status updates (start/end notifications). (Requires Manage Server permission)", inline=False)
     embed.add_field(name=f"{prefix}rating [weight] [total_teams] [best_points] [team_place] [team_points]", value="Calculate the rating points of a particular team in an event using the [CTFtime rating formula.](https://ctftime.org/rating-formula/)", inline=False)
     embed.set_footer(text="CTFtime Discord Bot")
     await ctx.send(embed=embed)
@@ -561,9 +738,14 @@ async def rating(ctx, weight: str = None, total_teams: str = None,
         print(f"Error occurred: {str(e)}")
         await ctx.send(embed=error_embed)
 
+@tasks.loop(minutes=1)
+async def check_ctf_status_periodically():
+    await check_ctf_status()
+
 @bot.event
 async def on_ready():
     print(f"{bot.user.name} has connected to Discord!")
     fetch_events_periodically.start()
+    check_ctf_status_periodically.start()
 
 bot.run(TOKEN)
