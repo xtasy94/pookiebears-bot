@@ -44,6 +44,7 @@ Invite it to your server if you don't want to self-host: https://discord.com/oau
 - `!team [team_id]`: Display detailed information about a specific team by its ID.
 - `!uptime`: Display how long the bot has been running.
 - `!setprefix [new_prefix]`: Set a new prefix for the bot (requires Manage Server permission).
+- `!rating [weight] [total_teams] [best_points] [team_place] [team_points]`: Calculate the rating points of a particular team in an event using the CTFtime rating formula.
 - `!setannouncementchannel [#channel]`: Set the announcement channel for CTF events (requires Manage Server permission).
 
 Note: The default prefix is `!`. You can change it using the `setprefix` command.
